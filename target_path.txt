@@ -1,0 +1,5 @@
+# 以下文件将按从上倒下的顺序执行
+# R- 开头的是右键，L- 的是左键
+# R-target_image/wifi.png
+# R-target_image/继续.png
+L-target_image/continue.png
