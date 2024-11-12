@@ -6,6 +6,10 @@ import cv2
 import keyboard
 import pyautogui
 import winsound
+import ctypes
+
+# 加载user32.dll库
+user32 = ctypes.windll.user32
 
 running = False
 beep = False
@@ -24,7 +28,7 @@ def print_msg():
           "\033[1;33m" + "*=" * 20 + "\033[0m")
 
 
-def XY_getter(this_path, threshold=0.2):
+def XY_getter(this_path, threshold=0.6):
     # 保存当前截图
     pyautogui.screenshot().save("target_image/screenshot.png")
 
@@ -66,11 +70,21 @@ def to_click(this_xy, bt):
     pyautogui.click(x, y, button=bt)
 
 
+# def to_click(button: str, x, y):
+#     # 按下和释放鼠标按键
+#     if button == "left":
+#         user32.mouse_event(0x0002, x, y, 0, 0)  # 鼠标左键按下
+#         user32.mouse_event(0x0004, x, y, 0, 0)  # 鼠标左键松开
+#     elif button == "right":
+#         user32.mouse_event(0x0008, x, y, 0, 0)  # 鼠标右键按下
+#         user32.mouse_event(0x0010, x, y, 0, 0)  # 鼠标右键松开
+
+
 def do():
     global delay, beep
 
     while running:
-        bt = "left"
+        btn = "left"
         # 加载点击目标文件
         with open("target_path.txt", "r", encoding="utf-8") as file1:
             content = file1.readlines()
@@ -82,25 +96,37 @@ def do():
             if this_path.startswith("#"):
                 continue
             elif this_path.lower().startswith("r-"):
-                bt = "right"
+                btn = "right"
                 this_path = this_path[2:]
             elif this_path.lower().startswith("l-"):
-                bt = "left"
+                btn = "left"
                 this_path = this_path[2:]
+            elif this_path.lower().startswith("space-"):
+                pyautogui.press('space')
+                this_path = this_path[6:]
+
+                if beep:
+                    # 响一声表示成功执行
+                    winsound.Beep(800, 500)
+
+                print(f"[INFO]\033[1;92m成功按下空格\033[0m：{os.path.basename(this_path)}")
+
+                continue
             try:
                 this_xy = XY_getter(this_path.strip())
                 # 为空时跳过
                 if this_xy is None:
                     continue
 
-                to_click(this_xy, bt)
+                to_click(this_xy, btn)
+                # to_click(button=btn)
 
                 if beep:
                     # 响一声表示成功执行
                     winsound.Beep(800, 500)
 
                 msg = os.path.basename(this_path)
-                clicker = "左键" if bt.__eq__("left") else "右键"
+                clicker = "左键" if btn.__eq__("left") else "右键"
 
                 print(f"[INFO]\033[1;92m成功{clicker}点击\033[0m：{msg}")
             except Exception as e:
@@ -118,7 +144,8 @@ def click_Thread():
             continue
 
         c = 0
-        pyautogui.click(960, 540, button="left")
+        user32.mouse_event(0x0002, 0, 0, 0, 0)  # 鼠标左键按下
+        user32.mouse_event(0x0004, 0, 0, 0, 0)  # 鼠标左键松开
         print("[CLICKER]\033[1;93m已点击一次\033[0m")
 
         if beep:
@@ -132,14 +159,16 @@ def begin_script():
         running = False
         if press_thread is not None:
             press_thread.join()  # 等待线程结束
-            click_thread.join()
+            if delay > 0:
+                click_thread.join()
         print("脚本\033[1;31m已停止\033[0m")
     else:
         running = True
         press_thread = threading.Thread(target=do)
         click_thread = threading.Thread(target=click_Thread)
         press_thread.start()
-        click_thread.start()
+        if delay > 0:
+            click_thread.start()
         print("脚本\033[1;36m已启动\033[0m")
 
 
