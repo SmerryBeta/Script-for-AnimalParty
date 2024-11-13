@@ -1,16 +1,18 @@
+import ctypes
 import os
 import threading
 import time
 
 import cv2
 import keyboard
+import numpy as np
 import pyautogui
 import winsound
-import ctypes
 
 # 加载user32.dll库
 user32 = ctypes.windll.user32
 
+exit_sign = False
 running = False
 beep = False
 
@@ -18,22 +20,24 @@ press_thread = None
 click_thread = None
 
 delay = 1
-leftC_delay = 2
 count = 0
+leftC_delay = 2
+repeat_num = 0
 
 
 def print_msg():
     print("\033[1;33m" + "*=" * 20 + "\033[0m\n\n",
-          "\033[1;31m     按下 F8 启动或暂停脚本，F12 关闭脚本。\033[0m\n\n",
+          "\033[1;31m     按下 \033[1;36mF8\033[1;31m 启动或暂停脚本 \033[1;36mF12\033[1;31m 关闭脚本。\033[0m\n\n",
           "\033[1;33m" + "*=" * 20 + "\033[0m")
 
 
-def XY_getter(this_path, threshold=0.6):
-    # 保存当前截图
-    pyautogui.screenshot().save("target_image/screenshot.png")
+def XY_getter(this_path, threshold=0.006):
+    # 获取当前截图并转为 numpy 数组
+    screenshot = pyautogui.screenshot()
+    screenshot_np = np.array(screenshot)  # 将 PIL 图像转为 numpy 数组
+    img = cv2.cvtColor(screenshot_np, cv2.COLOR_RGB2BGR)  # 转为 BGR 格式以兼容 OpenCV
 
     # 读取截图和目标图像
-    img = cv2.imread("target_image/screenshot.png")
     img_target = cv2.imread(this_path)
 
     print(f"[INFO]\033[1;93m正在处理路径：\033[0m{this_path}")
@@ -43,7 +47,7 @@ def XY_getter(this_path, threshold=0.6):
         raise FileNotFoundError("[ERROR]\033[1;31m无法加载截图或目标图像，请检查路径\033[0m")
 
     # 获取目标图像尺寸
-    this_high, this_wid, c = img_target.shape
+    this_high, this_wid, _ = img_target.shape
 
     # 执行模板匹配
     this_result = cv2.matchTemplate(img, img_target, cv2.TM_SQDIFF_NORMED)
@@ -54,7 +58,8 @@ def XY_getter(this_path, threshold=0.6):
     # 检查是否超过阈值
     if min_val > threshold:
         print(f"[ERROR]\033[1;31m匹配失败，最小匹配值: \033[0m{min_val}")
-        return None  # 返回 None 表示匹配失败
+        # 返回 None 表示匹配失败
+        return None
 
     # 计算中心位置坐标
     upper_left = min_loc
@@ -84,7 +89,7 @@ def do():
     global delay, beep
 
     while running:
-        btn = "left"
+
         # 加载点击目标文件
         with open("target_path.txt", "r", encoding="utf-8") as file1:
             content = file1.readlines()
@@ -102,23 +107,25 @@ def do():
                 btn = "left"
                 this_path = this_path[2:]
             elif this_path.lower().startswith("space-"):
-                pyautogui.press('space')
                 this_path = this_path[6:]
+                btn = "space"
+            else:
+                cache = this_path.split("-")
+                btn = cache[0]
+                this_path = cache[1]
 
-                if beep:
-                    # 响一声表示成功执行
-                    winsound.Beep(800, 500)
-
-                print(f"[INFO]\033[1;92m成功按下空格\033[0m：{os.path.basename(this_path)}")
-
-                continue
             try:
                 this_xy = XY_getter(this_path.strip())
                 # 为空时跳过
                 if this_xy is None:
                     continue
 
-                to_click(this_xy, btn)
+                if btn in ["left", "right"]:
+                    to_click(this_xy, btn)
+                elif btn == "space":
+                    pyautogui.press('space')
+                else:
+                    pyautogui.press(btn)
                 # to_click(button=btn)
 
                 if beep:
@@ -126,7 +133,12 @@ def do():
                     winsound.Beep(800, 500)
 
                 msg = os.path.basename(this_path)
-                clicker = "左键" if btn.__eq__("left") else "右键"
+                # 使用字典简化多条件判断
+                clicker = {
+                    "left": "左键",
+                    "space": "空格",
+                    "right": "右键"
+                }.get(btn, f"摁下{btn}")
 
                 print(f"[INFO]\033[1;92m成功{clicker}点击\033[0m：{msg}")
             except Exception as e:
@@ -146,7 +158,7 @@ def click_Thread():
         c = 0
         user32.mouse_event(0x0002, 0, 0, 0, 0)  # 鼠标左键按下
         user32.mouse_event(0x0004, 0, 0, 0, 0)  # 鼠标左键松开
-        print("[CLICKER]\033[1;93m已点击一次\033[0m")
+        print("[CLICKER]\033[1;92m已点击一次\033[0m")
 
         if beep:
             winsound.Beep(555, 666)
@@ -192,9 +204,41 @@ def init():
         print(e)
 
 
+# 定义按下按键时的回调函数
+def on_key_event(event):
+    global repeat_num, exit_sign
+    repeat_num += 1
+    # 避免重复
+    if repeat_num < 2:
+        return
+    # 检查是否是按键按下事件
+    if event.name == 'f8':
+        repeat_num = 0
+        begin_script()
+    # 退出脚本
+    elif event.name == 'f12':
+        print("[INFO]\033[1;36m正在关闭程序！\033[0m")
+        begin_script()
+        # 关闭脚本
+        exit_sign = True
+
+
 if __name__ == '__main__':
+    """
+    绑定 F8 热键  在这里监听 F8 键启动或停止长按操作
+    keyboard.add_hotkey('F8', begin_script) 不是很好用，因为在玩的时候似乎会失效。
+
+    2024/11/13更新：
+    1.改进的键盘的监听。
+    2.改进了匹配的精度，避免了乱点。
+    3.目前支持了更多的可 press 键。
+    4.支持达到特定条件直接退出，避免了 keyboard.wait() 无效的问题。
+    5.优化了截屏的读取，避免了多余的I/O开支。
+    """
+    # 打印提示
     print_msg()
-    # 绑定 F8 热键  在这里监听 F8 键启动或停止长按操作
-    keyboard.add_hotkey('F8', begin_script)
-    # 保持脚本运行，直到退出
-    keyboard.wait('F12')  # 按下 Esc 键退出脚本
+    # 添加全局监听器
+    keyboard.hook(on_key_event)
+    # 使用循环检查退出标志，避免阻塞
+    while not exit_sign:
+        time.sleep(0.1)  # 延迟以降低CPU占用
